@@ -1,0 +1,145 @@
+name: ghostty
+title: Ghostty
+base: core24
+version: '1.0.1'
+summary: Ghostty is a fast, feature-rich, and native terminal emulator.
+description: |
+  Ghostty is a terminal emulator that differentiates itself by being fast, feature-rich, and native.
+  While there are many excellent terminal emulators available, they all force you to choose between 
+  speed, features, or native UIs. Ghostty provides all three.
+website: https://ghostty.org
+icon: snap/gui/icon.png
+license: MIT
+
+source-code: [ https://github.com/ghostty-org/ghostty, https://github.com/dobicinaitis/ghostty-snap ]
+issues: [ https://github.com/ghostty-org/ghostty/issues, https://github.com/dobicinaitis/ghostty-snap/issues ]
+
+grade: stable
+confinement: classic
+
+parts:
+  # download the Zig version required by Ghostty
+  zig:
+    plugin: nil
+    build-packages:
+      - minisign
+    build-environment:
+      - GHOSTTY_TAG: v$SNAPCRAFT_PROJECT_VERSION
+      - GHOSTTY_BUILD_CONFIG_URL: https://raw.githubusercontent.com/ghostty-org/ghostty/$GHOSTTY_TAG/build.zig
+      - ZIG_PUBLIC_KEY: RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
+      - to amd64:
+          - ZIG_ARCH: x86_64
+      - to arm64:
+          - ZIG_ARCH: aarch64
+    override-build: |
+      ZIG_VERSION=$(curl -s $GHOSTTY_BUILD_CONFIG_URL | awk -F'"' '/const required_zig/ {print $2}')
+      ZIG_DOWNLOAD_URL=https://ziglang.org/download/$ZIG_VERSION/zig-linux-$ZIG_ARCH-$ZIG_VERSION.tar.xz
+      
+      curl -sSL $ZIG_DOWNLOAD_URL -o zig-release.tar.xz
+      curl -sSL $ZIG_DOWNLOAD_URL.minisig -o zig-release.tar.xz.minisig
+      minisign -Vm zig-release.tar.xz -P "$ZIG_PUBLIC_KEY"
+      
+      tar xvf zig-release.tar.xz --strip-components=1
+
+  # build Ghostty as a system package
+  ghostty:
+    after:
+      - zig
+    plugin: nil
+    build-packages:
+      # build tools
+      - patchelf
+      - file
+      # dependencies required to build Ghostty as a system package
+      - libgtk-4-dev
+      - libadwaita-1-dev
+      - pandoc
+      - libbz2-1.0 # bzip2
+      - libonig-dev # oniguruma
+    stage-packages:
+      - libgtk-4-1
+      - libadwaita-1-0
+      - libonig5
+    source-type: git
+    source: https://github.com/ghostty-org/ghostty
+    source-tag: v$SNAPCRAFT_PROJECT_VERSION
+    source-depth: 1
+    build-environment:
+      - PATH: $HOME/parts/zig/build:$PATH
+      - ZIG_GLOBAL_CACHE_DIR: /tmp/offline-cache
+      - PKG_CONFIG_PATH: "" # unset to avoid interference with zig build
+      - to amd64:
+          - INTERPRETER_NAME: ld-linux-x86-64.so.2
+      - to arm64:
+          - INTERPRETER_NAME: ld-linux-aarch64.so.1
+    override-build: |
+      # add a symbolic link for the bzip2 library, so that zig could find it using the expected name
+      ln -sf /usr/lib/$CRAFT_ARCH_TRIPLET/libbz2.so /usr/lib/$CRAFT_ARCH_TRIPLET/libbzip2.so
+      
+      # fetch the build cache
+      ./nix/build-support/fetch-zig-cache.sh
+      
+      # build Ghostty as a system package 
+      zig build \
+        --prefix $CRAFT_PART_INSTALL \
+        --system $ZIG_GLOBAL_CACHE_DIR/p \
+        -Doptimize=ReleaseFast \
+        -Dcpu=baseline
+    organize:
+      share: usr/share
+    prime:
+      # delete some bloat added by runtime dependencies
+      - -usr/bin
+      - -usr/sbin
+      - -usr/share/doc
+      - -usr/share/doc-base
+      - -usr/share/mime
+      - -usr/share/icons/Adwaita
+      - -usr/share/icons/Humanity
+      - -usr/share/icons/Humanity-Dark
+      - -usr/share/icons/LoginIcons
+      - -usr/share/icons/default
+      - -usr/share/icons/ubuntu-mono-dark
+      - -usr/share/icons/ubuntu-mono-light
+      - -usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libcolordprivate.so.2.0.5
+      - -usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libdconf.so.1.0.0
+      - -usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libicui18n.so.74.2
+      - -usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libicuio.so.74.2
+      - -usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libicutest.so.74.2
+      - -usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libicutu.so.74.2
+    # The 'build-attributes: [ enable-patchelf ]' option did not work (dunno), therefore,
+    # we need to manually adjust ELF rpath and interpreter properties to ensure that dynamically
+    # linked libraries in the classic Snap can correctly locate their dependencies at runtime.
+    override-prime: |
+      # run the default prime step
+      craftctl default
+      
+      SNAP_CORE_VERSION=$(sed -n 's/^base: //p' $CRAFT_PROJECT_DIR/snap/snapcraft.yaml)
+      
+      for binary in $(find . -exec file {} \; | awk -F\: '/ELF.*dynamic/{print $1}'); do
+        # calculate the depth of the binary directory
+        depth=$(echo $binary | awk -F/ '{print NF-2}')
+      
+        # generate $ORIGIN paths
+        rpath_entries=("\$ORIGIN")
+        for ((i = 1; i <= depth; i++)); do
+          rpath_entries+=("\$ORIGIN$(printf '/..%.0s' $(seq 1 $i))")
+        done
+      
+        # add fixed snap paths
+        rpath_entries+=("\$ORIGIN/../usr/lib/${CRAFT_ARCH_TRIPLET_BUILD_FOR}" "/snap/${SNAP_CORE_VERSION}/current/usr/lib/${CRAFT_ARCH_TRIPLET_BUILD_FOR}")
+      
+        # join RPATH entries
+        full_rpath=$(IFS=:; echo "${rpath_entries[*]}")
+      
+        # adjust RPATH and interpreter properties
+        patchelf --force-rpath --set-rpath "$full_rpath" "$binary"
+        patchelf --set-interpreter "/snap/${SNAP_CORE_VERSION}/current/lib64/${INTERPRETER_NAME}" "$binary" || true
+      done    
+
+apps:
+  ghostty:
+    command: bin/ghostty
+    desktop: usr/share/applications/com.mitchellh.ghostty.desktop
+    common-id: com.mitchellh.ghostty
+    completer: usr/share/bash-completion/completions/ghostty.bash
