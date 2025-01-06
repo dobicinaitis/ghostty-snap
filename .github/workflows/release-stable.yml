@@ -1,0 +1,94 @@
+name: Create a new stable release
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: write
+
+# required secrets:
+# - SNAPCRAFT_TOKEN: Snapcraft login credentials.
+#   Refs: https://snapcraft.io/docs/snapcraft-authentication, https://github.com/canonical/action-publish
+
+jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+    steps:
+      # This step is repeated so that the release workflow could be executed independently of the check one.
+      - name: Get latest Ghostty stable version
+        id: get-version
+        run: |
+          GHOSTTY_LATEST_STABLE_VERSION=$(curl -s https://api.github.com/repos/ghostty-org/ghostty/tags | \
+            jq -r '.[].name' | \
+            grep -oP '\d+\.\d+\.\d+' | \
+            sort -V | \
+            tail -n 1)
+          echo "Latest Ghostty stable version: $GHOSTTY_LATEST_STABLE_VERSION"
+          echo "version=$GHOSTTY_LATEST_STABLE_VERSION" >> $GITHUB_OUTPUT
+
+  release-snap:
+    runs-on: ubuntu-latest
+    # ARM hosted runners for OSS/free plans could become available in Q1 2025:
+    # https://github.com/github/roadmap/issues/970
+    # runs-on: ${{ matrix.platform }}
+    # strategy:
+    #   matrix:
+    #     platform: [ ubuntu-24.04, ubuntu-22.04-arm64 ] # update to 'latest'
+    timeout-minutes: 30
+    needs: get-version
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.GITHUB_REF }}
+          fetch-depth: 0
+
+      - name: Update snap version
+        run: |
+          sed -i -r "s/(^version: ')(.*)('$)/\1${{ needs.get-version.outputs.version }}\3/" snap/snapcraft.yaml
+
+      - name: Build snap package
+        id: snapcraft
+        uses: canonical/action-build@v1
+
+      - name: Run a smoke test
+        run: |
+          sudo snap install --classic --dangerous ${{ steps.snapcraft.outputs.snap }}
+          ghostty --version
+
+      - name: Verify versions
+        run: |
+          SNAP_VERSION=$(grep "^version: " snap/snapcraft.yaml | awk -F"'" '{print $2}')
+          ghostty --version | grep "\- version: $SNAP_VERSION"
+
+      #- name: Publish snap
+      #  uses: canonical/action-publish@v1
+      #  env:
+      #    SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_TOKEN }}
+      #  with:
+      #    snap: ${{ steps.snapcraft.outputs.snap }}
+      #    release: stable
+
+  bump-version:
+    runs-on: ubuntu-latest
+    needs:
+      - get-version
+      - release-snap
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.GITHUB_REF }}
+          fetch-depth: 0
+
+      - name: Configure Git committer identity
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "<>"
+
+      - name: Update release version in build files
+        run: |
+          sed -i -r "s/(^version: ')(.*)('$)/\1${{ needs.get-version.outputs.version }}\3/" snap/snapcraft.yaml
+          git commit -am "Bumped version to ${{ needs.get-version.outputs.version }}"
+          git push

@@ -1,0 +1,89 @@
+name: Check for new upstream releases
+on:
+  workflow_dispatch:
+#  schedule:
+#    - cron: "0 */6 * * *" # 4 times a day
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}
+
+env:
+  LAST_KNOWN_TIP_TAG_HASH: ${{ vars.LAST_KNOWN_TIP_TAG_HASH }}
+
+jobs:
+  # Check for new upstream releases
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    outputs:
+      is-new-stable-release-available: ${{ steps.check-for-new-stable-release.outputs.released }}
+      is-new-tip-release-available: ${{ steps.check-for-new-tip-release.outputs.released }}
+    steps:
+      - name: Get current Snap version
+        run: |
+          # faster than using the checkout action
+          SNAP_VERSION=$(curl -s https://raw.githubusercontent.com/dobicinaitis/ghostty-snap/$GITHUB_REF/snap/snapcraft.yaml | \
+            sed -n 's/^version: //p' | \
+            tr -d "'")
+          echo "Current Snap version: $SNAP_VERSION"
+          echo "SNAP_VERSION=$SNAP_VERSION" >> $GITHUB_ENV
+
+      - name: Get latest Ghostty stable version
+        # Ghostty is not creating GitHub releases, so we'll determine the latest stable version by parsing tags.
+        run: |
+          GHOSTTY_LATEST_STABLE_VERSION=$(curl -s https://api.github.com/repos/ghostty-org/ghostty/tags | \
+            jq -r '.[].name' | \
+            grep -oP '\d+\.\d+\.\d+' | \
+            sort -V | \
+            tail -n 1)
+          echo "Latest Ghostty stable version: $GHOSTTY_LATEST_STABLE_VERSION"
+          echo "GHOSTTY_LATEST_STABLE_VERSION=$GHOSTTY_LATEST_STABLE_VERSION" >> $GITHUB_ENV
+
+      - name: Get latest Ghostty tip tag hash
+        run: |
+          GHOSTTY_LATEST_TIP_TAG_HASH=$(curl -s https://api.github.com/repos/ghostty-org/ghostty/git/refs/tags/tip | \
+            jq -r '.object.url' | \
+            xargs curl -s | \
+            jq -r '.object.sha')
+          echo "Latest Ghostty tip tag commit hash: $GHOSTTY_LATEST_TIP_TAG_HASH"
+          echo "GHOSTTY_LATEST_TIP_TAG_HASH=$GHOSTTY_LATEST_TIP_TAG_HASH" >> $GITHUB_ENV
+
+      - name: Determine if a new stable release is available
+        id: check-for-new-stable-release
+        run: |
+          echo "Comparing Ghostty Snap version [$SNAP_VERSION] with the latest stable upstream release [$GHOSTTY_LATEST_STABLE_VERSION]."
+          if [ "$SNAP_VERSION" != "$GHOSTTY_LATEST_STABLE_VERSION" ]; then
+            echo "A new stable release is available!"
+            echo "released=true" >> $GITHUB_OUTPUT
+          else
+            echo "We are up to date with the latest stable release."
+            echo "released=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Determine if a new tip release is available
+        id: check-for-new-tip-release
+        run: |
+          echo "Comparing the last known tip tag hash [$LAST_KNOWN_TIP_TAG_HASH] with the latest upstream hash [$GHOSTTY_LATEST_TIP_TAG_HASH]."
+          if [ "$LAST_KNOWN_TIP_TAG_HASH" != "$GHOSTTY_LATEST_TIP_TAG_HASH" ]; then
+            echo "A new tip release is available!"
+            echo "released=true" >> $GITHUB_OUTPUT
+          else
+            echo "We are up to date with the latest tip release."
+            echo "released=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Trigger a new stable release
+  release-stable:
+    needs: check
+    if: ${{ needs.check.outputs.is-new-stable-release-available == 'true' }}
+    uses: ./.github/workflows/release-stable.yml
+    secrets: inherit
+
+  # Trigger a new tip release
+  release-tip:
+    needs: check
+    if: ${{ needs.check.outputs.is-new-tip-release-available == 'true' }}
+    uses: ./.github/workflows/release-tip.yml
+    secrets: inherit

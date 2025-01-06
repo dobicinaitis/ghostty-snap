@@ -1,0 +1,106 @@
+name: Create a new tip release
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: write
+
+# required secrets:
+# - SNAPCRAFT_TOKEN: Snapcraft login credentials.
+#   Refs: https://snapcraft.io/docs/snapcraft-authentication, https://github.com/canonical/action-publish
+#
+# - ACTIONS_TOKEN: Fine-grained GitHub personal access token with Variable 'Read and Write' permissions.
+#   Ref: https://github.com/settings/personal-access-tokens.
+
+jobs:
+  get-version-info:
+    runs-on: ubuntu-latest
+    outputs:
+      tip-tag-commit-hash: ${{ steps.tag-info.outputs.commit-hash }}
+      new-snap-version: ${{ steps.snap-info.outputs.new-snap-version }}
+    steps:
+      - name: Get latest Ghostty tip tag hash
+        id: tag-info
+        run: |
+          LATEST_TIP_TAG_HASH=$(curl -s https://api.github.com/repos/ghostty-org/ghostty/git/refs/tags/tip | \
+            jq -r '.object.url' | \
+            xargs curl -s | \
+            jq -r '.object.sha')
+          echo "Latest Ghostty tip tag commit hash: $LATEST_TIP_TAG_HASH"
+          echo "commit-hash=$LATEST_TIP_TAG_HASH" >> $GITHUB_OUTPUT
+          echo "SHORT_COMMIT_HASH=$(echo $LATEST_TIP_TAG_HASH | cut -c1-7)" >> $GITHUB_ENV
+
+      - name: Get development version
+        run: |
+          DEV_VERSION=$(curl -s https://raw.githubusercontent.com/ghostty-org/ghostty/tip/build.zig.zon | \
+            sed -n 's/.version = //p' | \
+            grep -oP '\d+\.\d+\.\d+')
+          echo "Latest Ghostty development version: $DEV_VERSION"
+          echo "DEV_VERSION=$DEV_VERSION" >> $GITHUB_ENV
+
+      - name: Compute the new snap version
+        id: snap-info
+        run: |
+          SNAP_VERSION="$DEV_VERSION-HEAD+$SHORT_COMMIT_HASH"
+          echo "New Snap version: $SNAP_VERSION"
+          echo "new-snap-version=$SNAP_VERSION" >> $GITHUB_OUTPUT
+
+  release-snap:
+    runs-on: ubuntu-latest
+    # ARM hosted runners for OSS/free plans could become available in Q1 2025:
+    # https://github.com/github/roadmap/issues/970
+    # runs-on: ${{ matrix.platform }}
+    # strategy:
+    #   matrix:
+    #     platform: [ ubuntu-24.04, ubuntu-22.04-arm64 ] # update to 'latest'
+    timeout-minutes: 30
+    needs: get-version-info
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.GITHUB_REF }}
+          fetch-depth: 0
+
+      - name: Update snap version
+        run: |
+          SNAP_VERSION=$(echo ${{ needs.get-version-info.outputs.new-snap-version }})
+          echo "Setting snap version to [$SNAP_VERSION]."
+          sed -i -r "s/(^version: ')(.*)('$)/\1$SNAP_VERSION\3/" snap/snapcraft.yaml
+          sed -i 's/v\$SNAPCRAFT_PROJECT_VERSION/tip/g' snap/snapcraft.yaml | less
+
+      - name: Build snap package
+        id: snapcraft
+        uses: canonical/action-build@v1
+
+      - name: Run a smoke test
+        run: |
+          sudo snap install --classic --dangerous ${{ steps.snapcraft.outputs.snap }}
+          ghostty --version
+
+      - name: Verify versions
+        run: |
+          SNAP_VERSION=$(echo ${{ needs.get-version-info.outputs.new-snap-version }})
+          ghostty --version | grep "\- version: $SNAP_VERSION"
+
+      #- name: Publish snap
+      #  uses: canonical/action-publish@v1
+      #  env:
+      #    SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_TOKEN }}
+      #  with:
+      #    snap: ${{ steps.snapcraft.outputs.snap }}
+      #    release: tip/stable
+
+  update-stored-tip-tag-hash:
+    runs-on: ubuntu-latest
+    needs:
+      - get-version-info
+      - release-snap
+    steps:
+      - name: Update stored tip tag hash
+        run: |
+          LAST_KNOWN_TIP_TAG_HASH=$(echo ${{ needs.get-version-info.outputs.tip-tag-commit-hash }})
+          echo "Storing the latest tip tag hash [$LAST_KNOWN_TIP_TAG_HASH]."
+          gh variable set LAST_KNOWN_TIP_TAG_HASH --body "$LAST_KNOWN_TIP_TAG_HASH"
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTIONS_TOKEN }}
