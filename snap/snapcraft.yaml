@@ -74,7 +74,7 @@ parts:
           - INTERPRETER_NAME: ld-linux-aarch64.so.1
     override-build: |
       # add a symbolic link for the bzip2 library, so that zig could find it using the expected name
-      ln -sf /usr/lib/$CRAFT_ARCH_TRIPLET/libbz2.so /usr/lib/$CRAFT_ARCH_TRIPLET/libbzip2.so
+      ln -sf /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libbz2.so /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libbzip2.so
       
       # fetch the build cache
       ./nix/build-support/fetch-zig-cache.sh
