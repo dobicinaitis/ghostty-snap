@@ -10,7 +10,7 @@ snapcraft clean
 snapcraft
 
 # install local snap
-snap install --classic --dangerous ./ghostty_*.snap
+snap install --classic --dangerous ./ghostty-unofficial_*.snap
 
 # re-run a specific stage
 snapcraft prime

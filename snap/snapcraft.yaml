@@ -1,8 +1,8 @@
-name: ghostty
-title: Ghostty
+name: ghostty-unofficial
+title: Ghostty (unofficial)
 base: core24
 version: '1.0.1'
-summary: Ghostty is a fast, feature-rich, and native terminal emulator.
+summary: Ghostty terminal emulator (unofficial)
 description: |
   Ghostty is a terminal emulator that differentiates itself by being fast, feature-rich, and native.
   While there are many excellent terminal emulators available, they all force you to choose between 
@@ -85,6 +85,10 @@ parts:
         --system $ZIG_GLOBAL_CACHE_DIR/p \
         -Doptimize=ReleaseFast \
         -Dcpu=baseline
+      
+      # adjust the shell completion script to work with the snap app name
+      echo "complete -o nospace -o bashdefault -F _ghostty $SNAPCRAFT_PROJECT_NAME" \
+        >> $CRAFT_PART_INSTALL/share/bash-completion/completions/ghostty.bash
     organize:
       share: usr/share
     prime:
@@ -135,10 +139,10 @@ parts:
         # adjust RPATH and interpreter properties
         patchelf --force-rpath --set-rpath "$full_rpath" "$binary"
         patchelf --set-interpreter "/snap/${SNAP_CORE_VERSION}/current/lib64/${INTERPRETER_NAME}" "$binary" || true
-      done    
+      done
 
 apps:
-  ghostty:
+  ghostty-unofficial:
     command: bin/ghostty
     desktop: usr/share/applications/com.mitchellh.ghostty.desktop
     common-id: com.mitchellh.ghostty

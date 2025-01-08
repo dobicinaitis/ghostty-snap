@@ -11,16 +11,16 @@ Snap packaging for the [Ghostty](https://github.com/ghostty-org/ghostty) termina
 
 ## Installation
 
-Get it from the [Snap Store](https://snapcraft.io/ghostty) or install using the command line.
+Get it from the [Snap Store](https://snapcraft.io/ghostty-unofficial) or install using the command line.
 
 **Latest release**
 
 ```bash
-snap install ghostty --classic
+snap install ghostty-unofficial --classic
 ```
 
 **Latest pre-release**
 
 ```bash
-snap install ghostty --classic --channel=tip
+snap install ghostty-unofficial --classic --channel=tip
 ```

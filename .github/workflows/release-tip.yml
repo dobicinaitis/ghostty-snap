@@ -76,6 +76,7 @@ jobs:
       - name: Run a smoke test
         run: |
           sudo snap install --classic --dangerous ${{ steps.snapcraft.outputs.snap }}
+          sudo snap alias ghostty-unofficial ghostty
           ghostty --version
 
       - name: Verify versions
