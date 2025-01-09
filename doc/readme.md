@@ -25,4 +25,5 @@ snapcraft prime --shell-after
 # References
 
 * [Snapcraft documentation](https://snapcraft.io/docs/snapcraft-reference)
+* [snapcraft.yaml examples on GitHub](https://github.com/search?o=desc&q=path%3Asnapcraft.yaml+%22plugin%3A+dump%22+&s=indexed&type=Code&utf8=%E2%9C%93)
 * [Packaging Ghostty](https://ghostty.org/docs/install/package)

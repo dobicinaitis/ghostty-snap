@@ -147,3 +147,5 @@ apps:
     desktop: usr/share/applications/com.mitchellh.ghostty.desktop
     common-id: com.mitchellh.ghostty
     completer: usr/share/bash-completion/completions/ghostty.bash
+    environment:
+      GHOSTTY_RESOURCES_DIR: $SNAP/usr/share/ghostty
