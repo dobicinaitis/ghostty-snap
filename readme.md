@@ -7,7 +7,9 @@
 Snap packaging for the [Ghostty](https://github.com/ghostty-org/ghostty) terminal emulator.
 
 > [!NOTE]
-> Work in progress. See [outstanding tasks](doc/todo.md).
+> **This is an unfinished symphony.** \
+> The Snap was rejected by the Snap Store because an upstream Snap will be published
+> [soon](https://github.com/ghostty-org/ghostty/pull/3931).
 
 ## Installation
 
