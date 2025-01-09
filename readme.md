@@ -24,3 +24,12 @@ snap install ghostty-unofficial --classic
 ```bash
 snap install ghostty-unofficial --classic --channel=tip
 ```
+
+**Create an alias** (optional)
+
+You can create a Snap alias to refer to it simply as `ghostty` in the CLI.
+
+```bash
+sudo snap alias ghostty-unofficial ghostty
+```
+
