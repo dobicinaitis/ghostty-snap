@@ -35,3 +35,12 @@ You can create a Snap alias to refer to it simply as `ghostty` in the CLI.
 sudo snap alias ghostty-unofficial ghostty
 ```
 
+## Useful
+
+Set Ghostty as your default terminal emulator in Gnome:
+
+```shell
+gsettings set org.gnome.desktop.default-applications.terminal exec 'ghostty'
+```
+
+You should now be able to open it using the keyboard shortcut `ctrl + shift + t`.
